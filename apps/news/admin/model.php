@@ -1,205 +1,300 @@
 <?php
 /**
- * News Application - Admin Model - /apps/news/admin/model.php
+ * News Application - Admin Model
  */
 
-defined('IN_WITY') or die('Access denied');
+defined('WITYCMS_VERSION') or die('Access denied');
 
-// Include Front Model for inheritance
+/**
+ * Include Front Model for inheritance
+ */
 include_once APPS_DIR.'news'.DS.'front'.DS.'model.php';
 
 /**
  * NewsAdminModel is the Admin Model of the News Application
  *
- * @package Apps
+ * @package Apps\News\Admin
  * @author Johan Dufau <johan.dufau@creatiwity.net>
  * @author Julien Blatecky <julien.blatecky@creatiwity.net>
- * @version 0.3-19-04-2013
+ * @version 0.5.0-11-02-2016
  */
 class NewsAdminModel extends NewsModel {
 	public function __construct() {
 		parent::__construct();
 	}
-	
+
 	/**
-	 * Retrieves last News_ID in the database
-	 * 
-	 * @return int
+	 * Retrieves all data linked to a News
+	 *
+	 * @param int $id_news
+	 * @return array
 	 */
-	public function getLastNewsId() {
+	public function getNews($id_news) {
+		if (empty($id_news)) {
+			return false;
+		}
+
 		$prep = $this->db->prepare('
-			SELECT id FROM news ORDER BY id DESC LIMIT 1
+			SELECT *
+			FROM news
+			WHERE id = :id_news
 		');
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
 		$prep->execute();
-		return intval($prep->fetchColumn());
+
+		$news = $prep->fetch(PDO::FETCH_ASSOC);
+
+		if (!empty($news)) {
+			$news['cats'] = $this->getCatsOfNews($id_news);
+		}
+
+		// Get lang fields
+		$prep = $this->db->prepare('
+			SELECT *
+			FROM news_lang
+			WHERE id_news = :id_news
+		');
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+		$prep->execute();
+
+		while ($data = $prep->fetch(PDO::FETCH_ASSOC)) {
+			foreach ($data as $key => $value) {
+				$news[$key.'_'.$data['id_lang']] = $value;
+			}
+		}
+
+		return $news;
 	}
-	
+
+	/**
+	 * Create lang line.
+	 *
+	 * @param int $id_news
+	 * @param array $data_translatable
+	 */
+	private function insertNewsLang($id_news, $data_translatable) {
+		$exec = true;
+		foreach ($data_translatable as $id_lang => $values) {
+			// Clean previous line
+			$prep = $this->db->prepare('DELETE FROM news_lang WHERE id_news = ? AND id_lang = ?');
+			$prep->execute(array($id_news, $id_lang));
+
+			$prep = $this->db->prepare('
+				INSERT INTO news_lang(id_news, id_lang, title, author, content, url, meta_title, meta_description, published, publish_date)
+				VALUES (:id_news, :id_lang, :title, :author, :content, :url, :meta_title, :meta_description, :published, :publish_date)
+			');
+			$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+			$prep->bindParam(':id_lang', $id_lang, PDO::PARAM_INT);
+			$prep->bindParam(':title', $values['title']);
+			$prep->bindParam(':author', $values['author']);
+			$prep->bindParam(':content', $values['content']);
+			$prep->bindParam(':url', $values['url']);
+			$prep->bindParam(':meta_title', $values['meta_title']);
+			$prep->bindParam(':meta_description', $values['meta_description']);
+			$prep->bindParam(':published', $values['published']);
+			$prep->bindParam(':publish_date', $values['publish_date']);
+
+			if (!$prep->execute()) {
+				$exec = false;
+			}
+		}
+
+		return $exec;
+	}
+
 	/**
 	 * Creates a News in the database from a set of data
-	 * 
+	 *
 	 * @param array $data
-	 * @return bool Success?
+	 * @param array $data_translatable
+	 * @return mixed ID of the new item or false on error
 	 */
-	public function createNews($data) {
+	public function createNews($data, $data_translatable) {
 		$prep = $this->db->prepare('
-			INSERT INTO news(url, title, author, content, keywords, creation_date, edited_by)
-			VALUES (:url, :title, :author, :content, :keywords, NOW(), :edited_by)
+			INSERT INTO news(image)
+			VALUES (:image)
 		');
-		$prep->bindParam(':url', $data['news_url']);
-		$prep->bindParam(':title', $data['news_title']);
-		$prep->bindParam(':author', $data['news_author']);
-		$prep->bindParam(':content', $data['news_content']);
-		$prep->bindParam(':keywords', $data['news_keywords']);
-		$prep->bindParam(':edited_by', $_SESSION['userid']);
-		return $prep->execute();
+		$prep->bindParam(':image', $data['image']);
+
+		if (!$prep->execute()) {
+			return false;
+		}
+
+		$id_news = $this->db->lastInsertId();
+
+		if ($this->insertNewsLang($id_news, $data_translatable)) {
+			return $id_news;
+		} else {
+			return false;
+		}
 	}
-	
+
 	/**
 	 * Updates a News in the database from a set of data
-	 * 
-	 * @param int $news_id
+	 *
+	 * @param int $id_news
 	 * @param array $data
+	 * @param array $data_translatable
 	 * @return bool Success?
 	 */
-	public function updateNews($news_id, $data) {
+	public function updateNews($id_news, $data, $data_translatable) {
 		$prep = $this->db->prepare('
 			UPDATE news
-			SET url = :url, title = :title, author = :author, content = :content, keywords = :keywords, modified_date = NOW(), edited_by = :edited_by
-			WHERE id = :id
+			SET image = :image
+			WHERE id = :id_news
 		');
-		$prep->bindParam(':id', $news_id);
-		$prep->bindParam(':url', $data['news_url']);
-		$prep->bindParam(':title', $data['news_title']);
-		$prep->bindParam(':author', $data['news_author']);
-		$prep->bindParam(':content', $data['news_content']);
-		$prep->bindParam(':keywords', $data['news_keywords']);
-		$prep->bindParam(':edited_by', $_SESSION['userid']);
-		return $prep->execute();
+		$prep->bindParam(':id_news', $id_news);
+		$prep->bindParam(':image', $data['image']);
+
+		if (!$prep->execute()) {
+			return false;
+		}
+
+		return $this->insertNewsLang($id_news, $data_translatable);
 	}
-	
+
 	/**
 	 * Deletes a News in the database
-	 * 
-	 * @param int $news_id
+	 *
+	 * @param int $id_news
 	 * @return bool Success?
 	 */
-	public function deleteNews($news_id) {
+	public function deleteNews($id_news) {
 		$prep = $this->db->prepare('
-			DELETE FROM news WHERE id = :news_id
+			DELETE FROM news WHERE id = :id_news
 		');
-		$prep->bindParam(':news_id', $news_id, PDO::PARAM_INT);
-		return $prep->execute();
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+		$exec1 = $prep->execute();
+
+		$prep = $this->db->prepare('
+			DELETE FROM news_lang WHERE id_news = :id_news
+		');
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+		$exec2 = $prep->execute();
+
+		return $exec1 && $exec2;
 	}
-	
+
 	/**
 	 * Create a relation between a News and a Category
-	 * 
-	 * @param int $news_id
-	 * @param int $cat_id
+	 *
+	 * @param int $id_news
+	 * @param int $id_cat
 	 * @return bool Success?
 	 */
-	public function addCatToNews($news_id, $cat_id) {
+	public function addCatToNews($id_news, $id_cat) {
 		$prep = $this->db->prepare('
-			INSERT INTO news_cats_relations(news_id, cat_id)
-			VALUES (:news_id, :cat_id)
+			INSERT INTO news_cats_relations(id_news, id_cat)
+			VALUES (:id_news, :id_cat)
 		');
-		$prep->bindParam(':news_id', $news_id, PDO::PARAM_INT);
-		$prep->bindParam(':cat_id', $cat_id, PDO::PARAM_INT);
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+		$prep->bindParam(':id_cat', $id_cat, PDO::PARAM_INT);
+
 		return $prep->execute();
 	}
-	
+
 	/**
 	 * Destroy all relations link categories to a given News_ID
-	 * 
-	 * @param int $news_id
+	 *
+	 * @param int $id_news
 	 * @return bool Success?
 	 */
-	public function removeCatsFromNews($news_id) {
+	public function removeCatsFromNews($id_news) {
 		$prep = $this->db->prepare('
-			DELETE FROM news_cats_relations WHERE news_id = :news_id
+			DELETE FROM news_cats_relations WHERE id_news = :id_news
 		');
-		$prep->bindParam(':news_id', $news_id, PDO::PARAM_INT);
+		$prep->bindParam(':id_news', $id_news, PDO::PARAM_INT);
+
 		return $prep->execute();
 	}
-	
+
 	/**
 	 * Destroy all relations involving a given News_Cat_ID
-	 * 
-	 * @param int $cat_id
+	 *
+	 * @param int $id_cat
 	 * @return bool Success?
 	 */
-	public function removeRelationsOfCat($cat_id) {
+	public function removeRelationsOfCat($id_cat) {
 		$prep = $this->db->prepare('
-			DELETE FROM news_cats_relations WHERE cat_id = :cat_id
+			DELETE FROM news_cats_relations WHERE id_cat = :id_cat
 		');
-		$prep->bindParam(':cat_id', $cat_id, PDO::PARAM_INT);
+		$prep->bindParam(':id_cat', $id_cat, PDO::PARAM_INT);
+
 		return $prep->execute();
 	}
-	
+
 	/**
 	 * Removes all relations to a parent category
-	 * 
-	 * @param int $parent_cat_id
+	 *
+	 * @param int $parent_id_cat
 	 * @return bool Success?
 	 */
-	public function unlinkChildrenOfParentCat($parent_cat_id) {
+	public function unlinkChildrenOfParentCat($parent_id_cat) {
 		$prep = $this->db->prepare('
 			UPDATE news_cats
 			SET parent = 0
-			WHERE parent = :cat_id
+			WHERE parent = :id_cat
 		');
-		$prep->bindParam(':cat_id', $parent_cat_id);
+		$prep->bindParam(':id_cat', $parent_id_cat);
+
 		return $prep->execute();
 	}
-	
+
 	/**
 	 * Creates a news category in the database
-	 * 
+	 *
 	 * @param array $data
-	 * @return bool Success?
+	 * @return mixed ID of the new item or false on error
 	 */
 	public function createCat($data) {
 		$prep = $this->db->prepare('
 			INSERT INTO news_cats(name, shortname, parent)
 			VALUES (:name, :shortname, :parent)
 		');
-		$prep->bindParam(':name', $data['news_cat_name']);
-		$prep->bindParam(':shortname', $data['news_cat_shortname']);
-		$prep->bindParam(':parent', $data['news_cat_parent']);
-		return $prep->execute();
+		$prep->bindParam(':name', $data['name']);
+		$prep->bindParam(':shortname', $data['shortname']);
+		$prep->bindParam(':parent', $data['parent']);
+
+		if ($prep->execute()) {
+			return $this->db->lastInsertId();
+		} else {
+			return false;
+		}
 	}
-	
+
 	/**
 	 * Updates a category in the database
-	 * 
-	 * @param int $cat_id
+	 *
+	 * @param int $id_cat
 	 * @param array $data
 	 * @return bool Success?
 	 */
-	public function updateCat($cat_id, $data) {
+	public function updateCat($id_cat, $data) {
 		$prep = $this->db->prepare('
 			UPDATE news_cats
 			SET name = :name, shortname = :shortname, parent = :parent
-			WHERE cid = :cat_id
+			WHERE cid = :id_cat
 		');
-		$prep->bindParam(':name', $data['news_cat_name']);
-		$prep->bindParam(':shortname', $data['news_cat_shortname']);
-		$prep->bindParam(':parent', $data['news_cat_parent']);
-		$prep->bindParam(':cat_id', $cat_id);
+		$prep->bindParam(':name', $data['name']);
+		$prep->bindParam(':shortname', $data['shortname']);
+		$prep->bindParam(':parent', $data['parent']);
+		$prep->bindParam(':id_cat', $id_cat);
+
 		return $prep->execute();
 	}
-	
+
 	/**
 	 * Deletes a news category in the database
-	 * 
-	 * @param int $cat_id
+	 *
+	 * @param int $id_cat
 	 * @return bool Success?
 	 */
-	public function deleteCat($cat_id) {
+	public function deleteCat($id_cat) {
 		$prep = $this->db->prepare('
-			DELETE FROM news_cats WHERE cid = :cat_id
+			DELETE FROM news_cats WHERE cid = :id_cat
 		');
-		$prep->bindParam(':cat_id', $cat_id, PDO::PARAM_INT);
+		$prep->bindParam(':id_cat', $id_cat, PDO::PARAM_INT);
+
 		return $prep->execute();
 	}
 }

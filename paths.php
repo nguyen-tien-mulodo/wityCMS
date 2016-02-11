@@ -1,18 +1,13 @@
 <?php
 /**
- * WityCMS paths.php
- * 
- * Content Management System for everyone
+ * wityCMS paths.php
  *
- * @package System
- * @author Charly Poly <charly[dot]poly at live[dot]fr>
- * @version 0.3
+ * Content Management System for everyone.
+ *
+ * @version 0.5.0-11-02-2016
  */
 
-/**
- * Avoid direct access
- */
-defined('IN_WITY') or die('Access denied');
+defined('WITYCMS_VERSION') or die('Access denied');
 
 /**
  * Directory Separator
@@ -20,7 +15,7 @@ defined('IN_WITY') or die('Access denied');
 define('DS', DIRECTORY_SEPARATOR);
 
 /**
- * WityCMS Root directory
+ * wityCMS Root directory
  */
 define('WITY_PATH', dirname(__FILE__).DS);
 
@@ -57,13 +52,16 @@ define('THEMES_DIR', WITY_PATH.'themes'.DS);
 /**
  * Logs location
  */
-define('LOGS_DIR', WITY_PATH.'helpers'.DS);
+define('LOGS_DIR', SYS_DIR);
 
 /**
  * Cache directory location
  */
 define('CACHE_DIR', WITY_PATH.'cache'.DS);
 
-
+/**
+ * Upload directory location
+ */
+define('UPLOAD_DIR', WITY_PATH.'upload'.DS);
 
 ?>

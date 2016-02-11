@@ -1,5 +1,10 @@
+#############
+## wityCMS
+#############
 cache/[^.]*/
-/nbproject
+system/config/config.php
+system/config/database.php
+system/config/route.php
 doc/
-installer/bypass*
-phpdoc-*.log
+upload/[^.]*/
+system/wity.log

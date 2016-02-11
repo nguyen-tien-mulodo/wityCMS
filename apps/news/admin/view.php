@@ -1,102 +1,145 @@
 <?php
 /**
- * News Application - Admin View - /apps/news/admin/view.php
+ * News Application - Admin View
  */
 
-defined('IN_WITY') or die('Access denied');
+defined('WITYCMS_VERSION') or die('Access denied');
 
 /**
  * NewsAdminView is the Admin View of the News Application
- * 
- * @package Apps
+ *
+ * @package Apps\News\Admin
  * @author Johan Dufau <johan.dufau@creatiwity.net>
  * @author Julien Blatecky <julien.blatecky@creatiwity.net>
- * @version 0.3-19-04-2013
+ * @version 0.5.0-11-02-2016
  */
 class NewsAdminView extends WView {
-	public function listing($model) {
-		$sorting = $model['sortingHelper']->getSorting();
-		$this->assign($model['sortingHelper']->getTplVars());
-		
-		$pagination = WHelper::load('pagination', array($model['total'], $model['news_per_page'], $model['current_page'], '/admin/news/'.$sorting[0].'-'.$sorting[1].'-%d/'));
-		$this->assign('pagination', $pagination->getHTML());
-		
-		$this->assign('news', $model['data']);
-		
-		$this->setTemplate('news_listing');
+	public function __construct() {
+		parent::__construct();
+
+		$this->assign('css', '/apps/news/admin/css/news-admin.css');
 	}
 
-	/**
-	 * Function to define template variable from a default array structure
-	 */
-	private function fillMainForm($model, $data) {
-		foreach ($model as $item => $default) {
-			$this->assign($item, isset($data[$item]) ? $data[$item] : $default);
-		}
+	public function news($model) {
+		$this->assign($model['sorting_tpl']);
+
+		$pagination = WHelper::load('pagination', array(
+			$model['total'],
+			$model['per_page'],
+			$model['current_page'],
+			'/admin/news/news/'.$model['sorting_vars'][0].'-'.$model['sorting_vars'][1].'-%d'
+		));
+		$this->assign('pagination', $pagination->getHTML());
+
+		$this->assign('news', $model['data']);
 	}
-	
-	public function news_form($model) {
+
+	public function newsForm($model) {
 		// JS / CSS
-		$this->assign('js', '/apps/news/admin/js/add_or_edit.js');
-		$this->assign('css', "/libraries/wysihtml5-bootstrap/bootstrap-wysihtml5-0.0.2.css");
-		$this->assign('js', "/libraries/wysihtml5-bootstrap/wysihtml5.min.js");
-		$this->assign('js', "/libraries/wysihtml5-bootstrap/bootstrap-wysihtml5-0.0.2.min.js");
-		
+		$this->assign('js', '/libraries/ckeditor-4.4.7/ckeditor.js');
+		$this->assign('require', 'apps!news/news-form');
+		$this->assign('require', 'witycms/admin');
+
 		// Assign site URL for permalink management
-		$this->assign('siteURL', WRoute::getBase() . '/news/');
-		$this->assign('lastId', $model['news_id']);
-		
-		$cat_ids = array();
-		if (!empty($model['data']['news_cats']) && is_array($model['data']['news_cats'])) {
-			foreach ($model['data']['news_cats'] as $key => $cat) {
+		$this->assign('site_url', WRoute::getBase().'news/');
+
+		// Treat categories input by user
+		$cats = array();
+		if (!empty($model['data']['cats']) && is_array($model['data']['cats'])) {
+			foreach ($model['data']['cats'] as $key => $cat) {
 				if ($cat === 'on') {
-					$cat_ids[] = $key;
+					$cats[] = $key;
 				} else if (is_array($cat)) {
-					$cat_ids[] = $cat['news_cat_id'];
+					$cats[] = $cat['cid'];
 				}
 			}
 		}
-		$this->assign('cats_list', $model['cats_list']);
-		$this->assign('news_cats', $cat_ids);
-		
-		$this->fillMainForm(array(
-			'news_author' => $_SESSION['nickname'],
-			'news_keywords' => '',
-			'news_title' => '',
-			'news_url' => '',
-			'news_content' => '',
-			'news_date' => '',
-			'news_modified' => ''
-		), $model['data']);
-		$this->setTemplate('news_form');
+
+		$this->assign('categories', $model['cats']);
+		$this->assign('cats', $cats);
+
+		$lang_list = WLang::getLangIds();
+
+		foreach ($lang_list as $id_lang) {
+			if (!empty($model['data']['publish_date_'.$id_lang])) {
+				if ($model['data']['publish_date_'.$id_lang] == '0000-00-00 00:00:00') {
+					$model['data']['publish_date_'.$id_lang] = date('Y-m-d', time());
+					$model['data']['publish_time_'.$id_lang] = date('H:i', time());
+				} else {
+					$datetime = explode(' ', $model['data']['publish_date_'.$id_lang]);
+
+					$model['data']['publish_date_'.$id_lang] = $datetime[0];
+					$model['data']['publish_time_'.$id_lang] = $datetime[1];
+				}
+			}
+		}
+
+		$default = array(
+			'id'            => 0,
+			'image'         => '',
+			'created_date'  => '',
+			'modified_date' => ''
+		);
+		$default_translatable = array(
+			'title'            => '',
+			'content'          => '',
+			'author'           => !empty($_SESSION['firstname']) || !empty($_SESSION['lastname']) ? trim($_SESSION['firstname'].' '.$_SESSION['lastname']) : $_SESSION['nickname'],
+			'url'              => '',
+			'meta_title'       => '',
+			'meta_description' => '',
+			'published'        => true,
+			'publish_date'     => date('Y-m-d', time()),
+			'publish_time'     => date('H:i', time()),
+		);
+
+		foreach ($default_translatable as $key => $value) {
+			foreach ($lang_list as $id_lang) {
+				$default[$key.'_'.$id_lang] = $value;
+			}
+		}
+
+		$this->assignDefault($default, $model['data']);
+
+		// Auto-translate
+		$form_values = array();
+		foreach ($default as $item => $def) {
+			$form_values[$item] = isset($model['data'][$item]) ? $model['data'][$item] : $def;
+		}
+		$this->assign('form_values', json_encode($form_values));
+
+		$this->setTemplate('news-form');
 	}
-	
-	public function edit($model) {
-		$this->news_form($model);
+
+	public function newsAdd($model) {
+		$this->newsForm($model);
 	}
-	
-	public function news_delete($model) {
-		$this->assign('title', $model['news_title']);
-		$this->assign('confirm_delete_url', "/admin/news/news_delete/".$model['news_id']."/confirm");
-		$this->setTheme('_blank');
+
+	public function newsEdit($model) {
+		$this->newsForm($model);
 	}
-	
-	public function category_delete($model) {
-		$this->assign('confirm_delete_url', "/admin/news/category_delete/".$model['cat_id']."/confirm");
-		$this->setTheme('_blank');
+
+	public function newsDelete($model) {
+		$this->assign('title', $model['title_'.WLang::getLangId()]);
+		$this->assign('confirm_delete_url', '/admin/news/news-delete/'.$model['id'].'/confirm');
 	}
-	
-	public function categories_manager($model) {
-		$this->assign('js', '/apps/news/admin/js/categories_manager.js');
-		$this->assign($model['sortingHelper']->getTplVars());
-		$this->fillMainForm(array(
-			'news_cat_id' => '',
-			'news_cat_name' => '',
-			'news_cat_shortname' => '',
-			'news_cat_parent' => 0,
-			'news_cat_parent_name' => ""
-		), $model['post_data']);
+
+	public function categories($model) {
+		$this->assign('require', 'apps!news/categories');
+
+		$this->assign($model['sorting_tpl']);
 		$this->assign('cats', $model['data']);
+
+		$this->assignDefault(array(
+			'id'          => '',
+			'name'        => '',
+			'shortname'   => '',
+			'parent'      => 0,
+			'parent_name' => ''
+		), $model['post_data']);
+	}
+
+	public function categoryDelete($model) {
+		$this->assign('confirm_delete_url', '/admin/news/category-delete/'.$model['cid'].'/confirm');
 	}
 }
 
